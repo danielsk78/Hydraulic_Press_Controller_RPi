@@ -198,15 +198,10 @@ class Dummy:
             x = 0
         return x
 
-    def average_val(self):
-        rand = np.random.randn(30)
-        ave = np.average(rand)
-        return ave
-
     def corrected_value(self):
-        ave_cor = (self.average_val() / (2 ** 23)) * 50
-        self.ave = ave_cor
-        return ave_cor
+        ave = np.random.randint(100)
+        time.sleep(0.5)
+        return ave
 
 
 class Read_Pin(object):
@@ -222,8 +217,11 @@ class Read_Pin(object):
             **kwargs:
         """
         self.lock = threading.Lock()
+        self.time_lock = threading.Lock()
         self.thread = None
+        self.time_thread = None
         self.thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
+        self.time_thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
         
     @abstractmethod
     def setup_init(self):
@@ -235,6 +233,17 @@ class Read_Pin(object):
         # Wildcard: Single update operation that can be looped in a thread.
         pass
 
+    @abstractmethod
+    def timer(self):
+        # Wildcard: Single update operation that can be looped in a thread.
+        pass
+
+    def thread_timer_loop(self):
+        while self.time_thread_status == 'running':
+            self.time_lock.acquire()
+            self.timer()
+            self.time_lock.release()
+
     def thread_loop(self):
         """
         Main thread loop where the update function is the one that is executed recursively
@@ -244,6 +253,15 @@ class Read_Pin(object):
             self.lock.acquire()
             self.update()
             self.lock.release()
+
+    def run_time(self):
+        if self.time_thread_status != 'running':
+            self.time_thread_status = 'running'
+            self.time_thread = threading.Thread(target=self.thread_timer_loop, daemon=True, )
+            self.time_thread.start()
+            print('Thread started or resumed...')
+        else:
+            print('Thread already running.')
 
     def run(self):
         if self.thread_status != 'running':
@@ -327,12 +345,23 @@ class Interface(Read_Pin):
             self.balance = Balance_Sensor()
     
         self.sleep = 0.2
-        labels = {"Date", "Force_kN"}
-        self.df = pd.DataFrame(columns=labels)
+
+        self.df = None
+        self.set_new_df()
+
         self.fig = plt.figure("Press Data")
         self.ax = plt.gca()
         self.btn = None
         self.lbl = None
+
+        self.start_recording = False
+        self.initial_time = None
+
+        self.sleep = 0
+
+    def set_new_df(self):
+        labels = {"Date", "Time_sec", "Force_kN"}
+        self.df = pd.DataFrame(columns=labels)
 
     def setup_init(self):
         """
@@ -361,15 +390,20 @@ class Interface(Read_Pin):
         else:
             self.btn.configure(bg="red", text="OFF")
     
-    def record(self):
+    def timer(self):
         """
         Function to record the readings from the press sensor
         Returns:
 
         """
-        force = self.balance.corrected_value()
-        df_temp = pd.DataFrame({"Date": [str(datetime.datetime.now())], "Force_kN": [force]})
-        self.df = pd.concat([self.df, df_temp])  # , sort=False)
+        if self.start_recording:
+            force = self.balance.corrected_value()
+            if self.initial_time is None:
+                self.initial_time = time.perf_counter()
+            time_elapsed = time.perf_counter() - self.initial_time  # Time in seconds
+            df_temp = pd.DataFrame({"Date": [time.ctime()], "Time_sec": [time_elapsed], "Force_kN": [force]})
+            self.df = pd.concat([self.df, df_temp], ignore_index=True)
+            time.sleep(self.sleep)
         
     def plot_data(self):
         """
@@ -403,7 +437,7 @@ class Interface(Read_Pin):
         
         # Create main frame shape
         mainframe.title("Press Controller and sensor readings")
-        mainframe.geometry('600x400')
+        mainframe.geometry('650x450')
 
         fq = tk.IntVar(value=self.pulse.frequency)  # Value saved here for the frequency
 
@@ -471,16 +505,32 @@ class Interface(Read_Pin):
             except:
                 print("Click on start button to activate the press")
                 messagebox.showerror('Error', 'Click on start button to activate the press')
-            
+
         obj = tk.IntVar(value=0)
 
         def set_force():
             aim = obj.get()
             print("force to apply:", aim)
-            
+
+        sec = tk.IntVar(value=0)
+
+        def set_time():
+            self.sleep = sec.get()
+            self.start_recording = True
+            self.run_time()
+            print("Recording data every:", self.sleep, 'seconds')
+
+        def pause_recordings():
+            self.start_recording = False
+            print("Recording Paused")
+
+        def clear_recordings():
+            self.set_new_df()
+            messagebox.showwarning('Warning', 'All the previous data is erased')
+            print("Recordings erased")
 
         ### Manual Controller    
-        tk.Label(mainframe, text="Manual Controller", font=("Arial Bold", 12), height = 3).grid(column=1, row=1)
+        tk.Label(mainframe, text="Manual Controller", font=("Arial Bold", 12), height=3).grid(column=1, row=1)
         
         # Pulse label and buttons
         tk.Label(mainframe, text="Pulse", height=3).grid(column=1, row=2)
@@ -511,26 +561,30 @@ class Interface(Read_Pin):
         
         ### Set Force 
         tk.Label(mainframe, text="Force to apply (kN)", font=("Arial Bold", 12), height = 3).grid(column=1, row=5)
-        
-        # Objective
-        tk.Entry(mainframe, textvariable=obj, width=10).grid(column=1, row=6)
-        tk.Button(mainframe, text="set Force (kN)", command=set_force, width=10).grid(column=2, row=6)
-                    
+
         # Sensor reading
-        self.lbl = tk.Label(mainframe, text="No reading")
-        self.lbl.grid(column=1, row=7)
-        
+        self.lbl = tk.Label(mainframe, text="No reading", font=("Arial Bold", 8))
+        self.lbl.grid(column=1, row=6)
+
+        # Objective
+        tk.Entry(mainframe, textvariable=obj, width=10).grid(column=1, row=7)
+        tk.Button(mainframe, text="set Force (kN)", command=set_force, width=10).grid(column=2, row=7)
+
         # Recording Data
-        tk.Button(mainframe, text="Start recording", command=self.record, width=10).grid(column=2, row=7)
+        tk.Entry(mainframe, textvariable=sec, width=10).grid(column=1, row=8)
+        tk.Button(mainframe, text="Start recording", command=set_time, width=12).grid(column=2, row=8)
+        tk.Button(mainframe, text="Pause recording", command=pause_recordings, width=12).grid(column=3, row=8)
+        tk.Button(mainframe, text="Clear Recordings", command=clear_recordings, width=12).grid(column=4, row=8)
         
         # Plotting Data
-        tk.Button(mainframe, text="Plot Data", command=self.plot_data, width=10).grid(column=3, row=7)
+        tk.Button(mainframe, text="Plot Data", command=self.plot_data, width=10).grid(column=1, row=9)
         
         # Saving Data
-        tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=4, row=7)
+        tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=1, row=10)
         
         # run thread
         self.run()
         
         mainframe.mainloop()
-        IO.cleanup()
+        if self.dummy is False:
+            IO.cleanup()
