@@ -218,10 +218,13 @@ class Read_Pin(object):
         """
         self.lock = threading.Lock()
         self.time_lock = threading.Lock()
+        self.plotter_lock = threading.Lock()
         self.thread = None
         self.time_thread = None
+        self.plotter_thread = None
         self.thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
         self.time_thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
+        self.plotter_thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
         
     @abstractmethod
     def setup_init(self):
@@ -238,11 +241,22 @@ class Read_Pin(object):
         # Wildcard: Single update operation that can be looped in a thread.
         pass
 
+    @abstractmethod
+    def plotter(self):
+        # Wildcard: Single update operation that can be looped in a thread.
+        pass
+
     def thread_timer_loop(self):
         while self.time_thread_status == 'running':
             self.time_lock.acquire()
             self.timer()
             self.time_lock.release()
+
+    def thread_plotter_loop(self):
+        while self.plotter_thread_status == 'running':
+            self.plotter_lock.acquire()
+            self.plotter()
+            self.plotter_lock.release()
 
     def thread_loop(self):
         """
@@ -259,6 +273,15 @@ class Read_Pin(object):
             self.time_thread_status = 'running'
             self.time_thread = threading.Thread(target=self.thread_timer_loop, daemon=True, )
             self.time_thread.start()
+            print('Thread started or resumed...')
+        else:
+            print('Thread already running.')
+
+    def run_plotter(self):
+        if self.plotter_thread_status != 'running':
+            self.plotter_thread_status = 'running'
+            self.plotter_thread = threading.Thread(target=self.thread_plotter_loop, daemon=True, )
+            self.plotter_thread.start()
             print('Thread started or resumed...')
         else:
             print('Thread already running.')
@@ -351,6 +374,8 @@ class Interface(Read_Pin):
 
         self.fig = plt.figure("Press Data")
         self.ax = plt.gca()
+        #plt.close()
+
         self.btn = None
         self.lbl = None
 
@@ -404,18 +429,26 @@ class Interface(Read_Pin):
             df_temp = pd.DataFrame({"Date": [time.ctime()], "Time_sec": [time_elapsed], "Force_kN": [force]})
             self.df = pd.concat([self.df, df_temp], ignore_index=True)
             time.sleep(self.sleep)
-        
-    def plot_data(self):
-        """
-        Plot all the data previously recorded
-        Returns:
 
-        """
+    def plotter(self):
+
         self.ax.cla()
-        self.ax.plot(self.df.Date, self.df.Force_kN, '*--', color="Blue")
-        self.ax.set_xlabel("Time")
+        self.ax.plot(self.df.Date, self.df.Time_sec, '*--', color="Blue")
+        self.ax.set_xlabel("Time (sec)")
         self.ax.set_ylabel("Force (kN)")
         plt.show()
+
+    #def plot_data(self):
+    #    """
+    ##    Plot all the data previously recorded
+     #   Returns:
+
+      #  """
+       # self.ax.cla()
+        #self.ax.plot(self.df.Date, self.df.Time_sec, '*--', color="Blue")
+        #self.ax.set_xlabel("Time (sec)")
+        ##self.ax.set_ylabel("Force (kN)")
+        #self.fig
     
     def save_data(self):
         """
@@ -577,7 +610,7 @@ class Interface(Read_Pin):
         tk.Button(mainframe, text="Clear Recordings", command=clear_recordings, width=12).grid(column=4, row=8)
         
         # Plotting Data
-        tk.Button(mainframe, text="Plot Data", command=self.plot_data, width=10).grid(column=1, row=9)
+        tk.Button(mainframe, text="Plot Data", command=self.run_plotter(), width=10).grid(column=1, row=9)
         
         # Saving Data
         tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=1, row=10)
