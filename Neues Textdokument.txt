@@ -1,0 +1,7 @@
+hx711 wireing and theorie:
+https://www.honey-pi.de/a-d-wandler-hx711/
+https://www.honey-pi.de/en/a-d-wandler-hx711/
+
+Code hx711 etc.:
+https://pypi.org/project/hx711/
+https://github.com/gandalf15/HX711/

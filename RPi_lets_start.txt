@@ -1,0 +1,29 @@
+Remote Desktop:
+https://www.youtube.com/watch?v=IDqQIDL3LKg
+
+optional:
+- installing Anaconda for RPi:
+	https://stackoverflow.com/questions/39371772/how-to-install-anaconda-on-raspberry-pi-3-model-b
+
+
+starting with pwm:
+https://circuitdigest.com/microcontroller-projects/raspberry-pi-pwm-tutorial
+
+--> next step frequenz change:
+https://sourceforge.net/p/raspberry-gpio-python/wiki/PWM/
+
+Communication between arduino and pi:
+https://maker.pro/raspberry-pi/tutorial/how-to-connect-and-interface-raspberry-pi-with-arduino
+
+tasks to do:
+- setting up remote desktop - done
+- getting familiar with Python3 or install - done
+- light led with pwm - done
+- build up a GUI to control PWM/brightness of led - half
+- light led with arduino over pi
+
+
+
+
+future:
+https://tutorials-raspberrypi.de/raspberry-pi-waage-bauen-gewichtssensor-hx711/
