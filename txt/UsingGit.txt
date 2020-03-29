@@ -1,0 +1,7 @@
+# To clone the repository
+
+git clone https://github.com/danielsk78/Hydraulic_Press_Controller_RPi.git
+
+# Apply the changes to your local Git repository with a message briefly outlining the changes you made.
+
+git commit -m "Here is my commit message"
