@@ -26,6 +26,9 @@ from abc import abstractmethod
 import threading
 import time
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib
+matplotlib.use("TkAgg")
 
 
 class Output_Pin:
@@ -372,8 +375,9 @@ class Interface(Read_Pin):
         self.df = None
         self.set_new_df()
 
-        self.fig = plt.figure("Press Data")
+        self.fig = plt.figure("Press Data", figsize=(5,5))
         self.ax = plt.gca()
+        self.canvas = None
         #plt.close()
 
         self.btn = None
@@ -382,7 +386,8 @@ class Interface(Read_Pin):
         self.start_recording = False
         self.initial_time = None
 
-        self.sleep = 0
+        self.sleep_record = 2
+        self.aim = 2
 
     def set_new_df(self):
         labels = {"Date", "Time_sec", "Force_kN"}
@@ -393,7 +398,8 @@ class Interface(Read_Pin):
         Initialize starting values before the thread start
         Returns:
         """
-        val = np.round(self.balance.corrected_value(), decimals=5)
+        self.balance.corrected_value()
+        val = np.round(self.balance.ave, decimals=5)
         self.lbl.configure(text=str(val))
         
         if self.active.state() == 1:
@@ -407,7 +413,8 @@ class Interface(Read_Pin):
         Returns:
 
         """
-        val = np.round(self.balance.corrected_value(), decimals=5)
+        self.balance.corrected_value()
+        val = np.round(self.balance.ave, decimals=5)
         self.lbl.configure(text=str(val))
         
         if self.active.state() == 1:
@@ -422,33 +429,48 @@ class Interface(Read_Pin):
 
         """
         if self.start_recording:
-            force = self.balance.corrected_value()
+            force = self.balance.ave
             if self.initial_time is None:
                 self.initial_time = time.perf_counter()
             time_elapsed = time.perf_counter() - self.initial_time  # Time in seconds
             df_temp = pd.DataFrame({"Date": [time.ctime()], "Time_sec": [time_elapsed], "Force_kN": [force]})
             self.df = pd.concat([self.df, df_temp], ignore_index=True)
-            time.sleep(self.sleep)
+            time.sleep(self.sleep_record)
 
-    def plotter(self):
+    #def plotter(self):
+     #   self.fig.clf()
+      #  self.ax.cla()
+       # self.ax.plot(self.df.Date, self.df.Time_sec, '*--', color="Blue")
+       # self.ax.set_xlabel("Time (sec)")
+       # self.ax.set_ylabel("Force (kN)")
+       # self.fig.canvas.draw()
+    
+    def create_matplotlib_window(self):
+        # Initialize an instance of Tk
+        matplot_window = tk.Tk()
+        matplot_window.title("Plot time ")
+        
+        #fig =plt.figure()
+        def _plotter():
+            # Clear all graphs drawn in figure
+            plt.clf()
+            plt.xlabel("Time (sec)")
+            plt.ylabel("Force (kN)")
+            plt.plot(self.df.Time_sec, self.df.Force_kN, '*--', color="Blue")
+            self.fig.canvas.draw()
+        
+        # Special type of "canvas" to allow for matplotlib graphing
+        self.canvas = FigureCanvasTkAgg(self.fig, master=matplot_window)
+        plot_widget = self.canvas.get_tk_widget()
+        # Add the plot to the tkinter widget
+        plot_widget.grid(row=0, column=0)
+        # Create a tkinter button at the bottom of the window and link it with the updateGraph function
+        self.matplot_update=tk.Button(matplot_window,text="Update",command=_plotter).grid(row=1, column=0)
+        self.run_plotter()
+        matplot_window.mainloop()
 
-        self.ax.cla()
-        self.ax.plot(self.df.Date, self.df.Time_sec, '*--', color="Blue")
-        self.ax.set_xlabel("Time (sec)")
-        self.ax.set_ylabel("Force (kN)")
-        plt.show()
-
-    #def plot_data(self):
-    #    """
-    ##    Plot all the data previously recorded
-     #   Returns:
-
-      #  """
-       # self.ax.cla()
-        #self.ax.plot(self.df.Date, self.df.Time_sec, '*--', color="Blue")
-        #self.ax.set_xlabel("Time (sec)")
-        ##self.ax.set_ylabel("Force (kN)")
-        #self.fig
+    #def plotter(self):
+     #   self.matplot_update.configure(
     
     def save_data(self):
         """
@@ -470,7 +492,7 @@ class Interface(Read_Pin):
         
         # Create main frame shape
         mainframe.title("Press Controller and sensor readings")
-        mainframe.geometry('650x450')
+        #mainframe.geometry('650x450')
 
         fq = tk.IntVar(value=self.pulse.frequency)  # Value saved here for the frequency
 
@@ -481,13 +503,12 @@ class Interface(Read_Pin):
             Returns:
 
             """
-            if self.dummy:
-                print("before:", self.pulse.frequency)
+            
+            print("before:", self.pulse.frequency)
 
             self.pulse.frequency = fq.get()
 
-            if self.dummy:
-                print("after:", self.pulse.frequency)
+            print("after:", self.pulse.frequency)
 
         dc = tk.IntVar(value=self.pulse.dc)  # Value saved here for the duty cycle
 
@@ -499,13 +520,12 @@ class Interface(Read_Pin):
 
             """
 
-            if self.dummy:
-                print("before:", self.pulse.dc)
+            
+            print("before:", self.pulse.dc)
 
             self.pulse.dc = dc.get()
 
-            if self.dummy:
-                print("after", self.pulse.dc)
+            print("after", self.pulse.dc)
                 
         def dir_down():
             """
@@ -539,19 +559,19 @@ class Interface(Read_Pin):
                 print("Click on start button to activate the press")
                 messagebox.showerror('Error', 'Click on start button to activate the press')
 
-        obj = tk.IntVar(value=0)
+        obj = tk.IntVar(value=self.aim)
 
         def set_force():
-            aim = obj.get()
-            print("force to apply:", aim)
+            self.aim = obj.get()
+            print("force to apply:", self.aim)
 
-        sec = tk.IntVar(value=0)
+        sec = tk.IntVar(value=self.sleep_record)
 
         def set_time():
-            self.sleep = sec.get()
+            self.sleep_record= sec.get()
             self.start_recording = True
             self.run_time()
-            print("Recording data every:", self.sleep, 'seconds')
+            print("Recording data every:", self.sleep_record, 'seconds')
 
         def pause_recordings():
             self.start_recording = False
@@ -561,6 +581,10 @@ class Interface(Read_Pin):
             self.set_new_df()
             messagebox.showwarning('Warning', 'All the previous data is erased')
             print("Recordings erased")
+        
+        def plot_data():
+            self.create_matplotlib_window()
+            print("New window open, to see data")
 
         ### Manual Controller    
         tk.Label(mainframe, text="Manual Controller", font=("Arial Bold", 12), height=3).grid(column=1, row=1)
@@ -610,7 +634,7 @@ class Interface(Read_Pin):
         tk.Button(mainframe, text="Clear Recordings", command=clear_recordings, width=12).grid(column=4, row=8)
         
         # Plotting Data
-        tk.Button(mainframe, text="Plot Data", command=self.run_plotter(), width=10).grid(column=1, row=9)
+        tk.Button(mainframe, text="Plot Data", command=plot_data, width=10).grid(column=1, row=9)
         
         # Saving Data
         tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=1, row=10)
