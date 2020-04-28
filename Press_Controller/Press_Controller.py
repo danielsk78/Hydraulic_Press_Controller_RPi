@@ -14,6 +14,7 @@ except ImportError:
 
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import filedialog
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ import pandas as pd
 from abc import ABCMeta
 from abc import abstractmethod
 import threading
+from datetime import datetime
 import time
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -118,10 +120,6 @@ class Input_Pin:
         """
         x = IO.input(self.channel)
         return x
-    
-    def my_callback(self, channel):  # TODO: Deprecated. Keep for future functionalities as replacement for thread
-        x = IO.input(self.channel)
-        print(x)
 
 
 class Balance_Sensor:
@@ -218,12 +216,13 @@ class Read_Pin(object):
         """
         self.lock = threading.Lock()
         self.time_lock = threading.Lock()
-        self.plotter_lock = threading.Lock()
+        self.force_lock = threading.Lock()
         self.thread = None
         self.time_thread = None
-        self.plotter_thread = None
+        self.force_thread = None
         self.thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
         self.time_thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
+        self. force_thread_status = 'stopped'
         
     @abstractmethod
     def setup_init(self):
@@ -240,11 +239,22 @@ class Read_Pin(object):
         # Wildcard: Single update operation that can be looped in a thread.
         pass
 
+    @abstractmethod
+    def force(self):
+        # Wildcard: Single update operation that can be looped in a thread.
+        pass
+
     def thread_timer_loop(self):
         while self.time_thread_status == 'running':
             self.time_lock.acquire()
             self.timer()
             self.time_lock.release()
+
+    def thread_force_loop(self):
+        while self.force_thread_status == 'running':
+            self.force_lock.acquire()
+            self.force()
+            self.force_lock.release()
 
     def thread_loop(self):
         """
@@ -255,6 +265,15 @@ class Read_Pin(object):
             self.lock.acquire()
             self.update()
             self.lock.release()
+
+    def run_force(self):
+        if self.force_thread_status != 'running':
+            self.force_thread_status = 'running'
+            self.force_thread = threading.Thread(target=self.thread_force_loop, daemon=True, )
+            self.force_thread.start()
+            print('Thread started or resumed...')
+        else:
+            print('Thread already running.')
 
     def run_time(self):
         if self.time_thread_status != 'running':
@@ -290,11 +309,21 @@ class Read_Pin(object):
         else:
             print('There is no thread running.')
 
-    def resume(self):
-        if self.thread_status != 'stopped':
-            self.run()
+    def pause_time(self):
+        if self.time_thread_status == 'running':
+            self.time_thread_status = 'paused'  # set flag to end thread loop
+            self.time_thread.join()  # wait for the thread to finish
+            print('Thread paused.')
         else:
-            print('Thread already stopped.')
+            print('There is no thread running.')
+
+    def pause_force(self):
+        if self.force_thread_status == 'running':
+            self.force_thread_status = 'paused'  # set flag to end thread loop
+            self.force_thread.join()  # wait for the thread to finish
+            print('Thread paused.')
+        else:
+            print('There is no thread running.')
 
 
 class Interface(Read_Pin):
@@ -351,13 +380,13 @@ class Interface(Read_Pin):
         self.df = None
         self.set_new_df()
 
-        self.fig = plt.figure("Press Data", figsize=(5,5))
+        self.fig = plt.figure("Press Data")
         self.ax = plt.gca()
-        self.canvas = None
-        #plt.close()
+        plt.close()
 
         self.btn = None
         self.lbl = None
+        self.lbl_save = None
 
         self.start_recording = False
         self.initial_time = None
@@ -366,24 +395,13 @@ class Interface(Read_Pin):
 
         self.sleep_record = 2
         self.aim = 2
+        self.deviation = 0.5
+
+        self.dir_name = "./"
 
     def set_new_df(self):
         labels = {"Date", "Time_sec", "Force_kN"}
         self.df = pd.DataFrame(columns=labels)
-
-    def setup_init(self):
-        """
-        Initialize starting values before the thread start
-        Returns:
-        """
-        self.balance.corrected_value()
-        val = np.round(self.balance.ave, decimals=5)
-        self.lbl.configure(text=str(val))
-        
-        if self.active.state() == 1:
-            self.btn.configure(bg="green", text="READY")
-        else:
-            self.btn.configure(bg="red", text="OFF")
 
     def update(self):
         """
@@ -393,7 +411,7 @@ class Interface(Read_Pin):
         """
         self.balance.corrected_value()
         val = np.round(self.balance.ave, decimals=5)
-        self.lbl.configure(text=str(val))
+        self.lbl.configure(text="Reading:   " + str(val))
         
         if self.active.state() == 1:
             self.btn.configure(bg="green", text="READY")
@@ -436,13 +454,39 @@ class Interface(Read_Pin):
         tk.Button(matplot_window, text="Update", command=_plotter).grid(row=1, column=0)
         matplot_window.mainloop()
 
+    def force(self):
+        actual_force = self.balance.ave
+        aim_force = self.aim
+        e = self.deviation
+        if actual_force > (aim_force + e):  # Go down
+            self.pulse.stop()
+            #time.sleep(self.sleep)
+            self.dir.on()
+            #time.sleep(self.sleep)
+            self.pulse.move_PWM()
+            self.pulse.stop()
+
+        elif actual_force < (aim_force - e):  # Go up
+            self.pulse.stop()
+            #time.sleep(self.sleep)
+            self.dir.off()
+            #time.sleep(self.sleep)
+            self.pulse.move_PWM()
+            self.pulse.stop()
+
+        else:
+            self.pulse.stop()
+
     def save_data(self):
         """
         Save the pandas data frame of the recording to be open as a csv in other software
         Returns:
         """
-        # export as csv
-        pass
+        now = datetime.now()
+        current_date = now.strftime("%d%m%Y_%H%M")
+        file_dir = self.dir_name + "/" + current_date + ".csv"
+        self.df.to_csv(file_dir, index=False)
+        print("Data saved in:", file_dir)
         
     def setup(self):
         """
@@ -466,7 +510,6 @@ class Interface(Read_Pin):
 
             """
             print("before:", self.pulse.frequency)
-            print("work?", fq.get())
             self.pulse.frequency = fq.get()
             print("after:", self.pulse.frequency)
 
@@ -481,7 +524,6 @@ class Interface(Read_Pin):
             """
             print("before:", self.pulse.dc)
             self.pulse.dc = dc.get()
-            print("work?", dc.get())
             print("after", self.pulse.dc)
                 
         def dir_down():
@@ -521,6 +563,13 @@ class Interface(Read_Pin):
         def set_force():
             self.aim = obj.get()
             print("force to apply:", self.aim)
+            self.run_force()
+
+        def pause_set_force():
+            self.pause_force()
+
+        def release_force():
+            pass
 
         sec = tk.IntVar(value=self.sleep_record, master=mainframe)
 
@@ -532,6 +581,7 @@ class Interface(Read_Pin):
 
         def pause_recordings():
             self.start_recording = False
+            self.pause_time()
             print("Recording Paused")
 
         def clear_recordings():
@@ -546,15 +596,15 @@ class Interface(Read_Pin):
         ### Manual Controller
         tk.Label(mainframe, text="Manual Controller", font=("Arial Bold", 12), height=3).grid(column=1, row=1)
 
-        # Pulse label and buttons
-        tk.Label(mainframe, text="Pulse", height=3).grid(column=1, row=2)
-        tk.Button(mainframe, text="Start", command=self.pulse.start_PWM, width=10).grid(column=2, row=2)
-        tk.Button(mainframe, text="Stop", command=self.pulse.stop, width=10).grid(column=3, row=2)
-
         # Enable label and buttons
-        tk.Label(mainframe, text="Enable", height=3).grid(column=1, row=3)
-        tk.Button(mainframe, text="On", command=self.enable.on, width=10).grid(column=2, row=3)
-        tk.Button(mainframe, text="Off", command=self.enable.off, width=10).grid(column=3, row=3)
+        tk.Label(mainframe, text="Enable", height=3).grid(column=1, row=2)
+        tk.Button(mainframe, text="On", command=self.enable.on, width=10).grid(column=2, row=2)
+        tk.Button(mainframe, text="Off", command=self.enable.off, width=10).grid(column=3, row=2)
+
+        # Pulse label and buttons
+        tk.Label(mainframe, text="Pulse", height=3).grid(column=1, row=3)
+        tk.Button(mainframe, text="Start", command=self.pulse.start_PWM, width=10).grid(column=2, row=3)
+        tk.Button(mainframe, text="Stop", command=self.pulse.stop, width=10).grid(column=3, row=3)
 
         # direction label and buttons
         tk.Label(mainframe, text="Direction", height=3).grid(column=1, row=4)
@@ -571,40 +621,66 @@ class Interface(Read_Pin):
 
         # active or inactive
         self.btn = tk.Button(mainframe, text="Waiting", width=10, height=3, bg="yellow", state='disabled')
-        self.btn.grid(column=6, row=4)
+        self.btn.grid(column=5, row=4, columnspan=2, sticky=tk.W + tk.E)
 
         ### Set Force
         tk.Label(mainframe, text="Force to apply (kN)", font=("Arial Bold", 12), height = 3).grid(column=1, row=5)
 
         # Sensor reading
-        self.lbl = tk.Label(mainframe, text="No reading", font=("Arial Bold", 8))
-        self.lbl.grid(column=1, row=6)
+        self.lbl = tk.Label(mainframe, text="No reading", font=("Arial Bold", 10))
+        self.lbl.grid(column=1, row=6, columnspan=4, sticky=tk.W + tk.E )
 
         # Objective
         tk.Entry(mainframe, textvariable=obj, width=10).grid(column=1, row=7)
-        tk.Button(mainframe, text="set Force (kN)", command=set_force, width=10).grid(column=2, row=7)
+        tk.Button(mainframe, text="Set Force (kN)", command=set_force, width=10).grid(column=2, row=7)
+        tk.Button(mainframe, text="Pause ", command=pause_set_force, width=10).grid(column=3, row=7)
 
-        # Recording Data
-        tk.Entry(mainframe, textvariable=sec, width=10).grid(column=1, row=8)
-        tk.Button(mainframe, text="Start recording", command=set_time, width=12).grid(column=2, row=8)
-        tk.Button(mainframe, text="Pause recording", command=pause_recordings, width=12).grid(column=3, row=8)
-        tk.Button(mainframe, text="Clear Recordings", command=clear_recordings, width=12).grid(column=4, row=8)
+        ### Data Recording
+        tk.Label(mainframe, text="Data recording (sec)", font=("Arial Bold", 12), height=3).grid(column=1, row=8)
 
-        # Plotting Data
-        tk.Button(mainframe, text="Plot Data", command=plot_data, width=10).grid(column=1, row=9)
+        ### Recording Data
+        tk.Entry(mainframe, textvariable=sec, width=10).grid(column=1, row=9)
+        tk.Button(mainframe, text="Start", command=set_time, width=10).grid(column=2, row=9)
+        tk.Button(mainframe, text="Pause", command=pause_recordings, width=10).grid(column=3, row=9)
+        tk.Button(mainframe, text="Clear", command=clear_recordings, width=10).grid(column=4, row=9)
+
+        def select_folder():
+            self.dir_name = filedialog.askdirectory()
+            self.lbl_save.configure(text=self.dir_name)
 
         # Saving Data
-        tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=1, row=10)
+        tk.Button(mainframe, text="Browse..", command=select_folder).grid(column=2, row=8)
+        self.lbl_save = tk.Label(mainframe, text="Select a folder")
+        self.lbl_save.grid(column=3, row=8, columnspan=7, sticky=tk.W + tk.E)
+
+        tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=2,
+                                                                                      row=10,
+                                                                                      columnspan=3,
+                                                                                      sticky=tk.W + tk.E)
+        # Plotting Data
+        tk.Button(mainframe, text="Plot Data", command=plot_data, width=10, height=3, bg="blue").grid(column=5,
+                                                                                                      row=9,
+                                                                                                      columnspan=2,
+                                                                                                      rowspan=2,
+                                                                                                      sticky=tk.W + tk.E)
 
         # Close the window
-        def exit_mainframe():
-            print("Exit application")
+        def stop_all(): #TODO: still not working
+            print("Stop all")
+            self.pulse.stop()
+            time.sleep(0.1)
+            self.enable.off()
+            time.sleep(0.1)
+            self.pause_force()
+            time.sleep(0.1)
+            self.pause_time()
+            time.sleep(0.1)
             self.stop()
-            if self.dummy is False:
-                IO.cleanup()
-            mainframe.destroy()
+            #if self.dummy is False:
+            #    IO.cleanup()
+            #mainframe.quit()
 
-        tk.Button(mainframe, text="Exit window", bg="red", command=exit_mainframe).grid(column=1, row=10)
+        tk.Button(mainframe, text="Stop all", bg="red", command=stop_all).grid(column=5, row=1, columnspan=2, sticky=tk.W + tk.E)
 
         # run thread
         self.run()
