@@ -15,9 +15,6 @@ except ImportError:
 import tkinter as tk
 from tkinter import messagebox
 
-from PIL import ImageTk, Image
-
-import datetime
 import numpy as np
 import pandas as pd
 
@@ -227,7 +224,6 @@ class Read_Pin(object):
         self.plotter_thread = None
         self.thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
         self.time_thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
-        self.plotter_thread_status = 'stopped'  # status: 'stopped', 'running', 'paused'
         
     @abstractmethod
     def setup_init(self):
@@ -244,22 +240,11 @@ class Read_Pin(object):
         # Wildcard: Single update operation that can be looped in a thread.
         pass
 
-    @abstractmethod
-    def plotter(self):
-        # Wildcard: Single update operation that can be looped in a thread.
-        pass
-
     def thread_timer_loop(self):
         while self.time_thread_status == 'running':
             self.time_lock.acquire()
             self.timer()
             self.time_lock.release()
-
-    def thread_plotter_loop(self):
-        while self.plotter_thread_status == 'running':
-            self.plotter_lock.acquire()
-            self.plotter()
-            self.plotter_lock.release()
 
     def thread_loop(self):
         """
@@ -276,15 +261,6 @@ class Read_Pin(object):
             self.time_thread_status = 'running'
             self.time_thread = threading.Thread(target=self.thread_timer_loop, daemon=True, )
             self.time_thread.start()
-            print('Thread started or resumed...')
-        else:
-            print('Thread already running.')
-
-    def run_plotter(self):
-        if self.plotter_thread_status != 'running':
-            self.plotter_thread_status = 'running'
-            self.plotter_thread = threading.Thread(target=self.thread_plotter_loop, daemon=True, )
-            self.plotter_thread.start()
             print('Thread started or resumed...')
         else:
             print('Thread already running.')
@@ -386,6 +362,8 @@ class Interface(Read_Pin):
         self.start_recording = False
         self.initial_time = None
 
+        self.matplot_update = None
+
         self.sleep_record = 2
         self.aim = 2
 
@@ -426,7 +404,6 @@ class Interface(Read_Pin):
         """
         Function to record the readings from the press sensor
         Returns:
-
         """
         if self.start_recording:
             force = self.balance.ave
@@ -437,20 +414,11 @@ class Interface(Read_Pin):
             self.df = pd.concat([self.df, df_temp], ignore_index=True)
             time.sleep(self.sleep_record)
 
-    #def plotter(self):
-     #   self.fig.clf()
-      #  self.ax.cla()
-       # self.ax.plot(self.df.Date, self.df.Time_sec, '*--', color="Blue")
-       # self.ax.set_xlabel("Time (sec)")
-       # self.ax.set_ylabel("Force (kN)")
-       # self.fig.canvas.draw()
-    
     def create_matplotlib_window(self):
         # Initialize an instance of Tk
         matplot_window = tk.Tk()
         matplot_window.title("Plot time ")
-        
-        #fig =plt.figure()
+
         def _plotter():
             # Clear all graphs drawn in figure
             plt.clf()
@@ -458,20 +426,16 @@ class Interface(Read_Pin):
             plt.ylabel("Force (kN)")
             plt.plot(self.df.Time_sec, self.df.Force_kN, '*--', color="Blue")
             self.fig.canvas.draw()
-        
+
         # Special type of "canvas" to allow for matplotlib graphing
-        self.canvas = FigureCanvasTkAgg(self.fig, master=matplot_window)
-        plot_widget = self.canvas.get_tk_widget()
+        canvas = FigureCanvasTkAgg(self.fig, master=matplot_window)
+        plot_widget = canvas.get_tk_widget()
         # Add the plot to the tkinter widget
         plot_widget.grid(row=0, column=0)
         # Create a tkinter button at the bottom of the window and link it with the updateGraph function
-        self.matplot_update=tk.Button(matplot_window,text="Update",command=_plotter).grid(row=1, column=0)
-        self.run_plotter()
+        tk.Button(matplot_window, text="Update", command=_plotter).grid(row=1, column=0)
         matplot_window.mainloop()
 
-    #def plotter(self):
-     #   self.matplot_update.configure(
-    
     def save_data(self):
         """
         Save the pandas data frame of the recording to be open as a csv in other software
@@ -486,7 +450,6 @@ class Interface(Read_Pin):
         Returns:
 
         """
-
         # Create root
         mainframe = tk.Tk()
         
@@ -494,8 +457,7 @@ class Interface(Read_Pin):
         mainframe.title("Press Controller and sensor readings")
         #mainframe.geometry('650x450')
 
-        fq = tk.IntVar(value=self.pulse.frequency)  # Value saved here for the frequency
-
+        fq = tk.IntVar(value=self.pulse.frequency, master=mainframe)
         def frequency():
             """
             If the user want to change the frequency, this function will change the frequency configuration of the
@@ -503,15 +465,13 @@ class Interface(Read_Pin):
             Returns:
 
             """
-            
             print("before:", self.pulse.frequency)
-
+            print("work?", fq.get())
             self.pulse.frequency = fq.get()
-
             print("after:", self.pulse.frequency)
 
-        dc = tk.IntVar(value=self.pulse.dc)  # Value saved here for the duty cycle
-
+        # Value saved here for the duty cycle
+        dc = tk.IntVar(value=self.pulse.dc, master=mainframe)
         def duty_cycle():
             """
             If the user want to change the frequency, this function will change the frequency configuration of the
@@ -519,12 +479,9 @@ class Interface(Read_Pin):
             Returns:
 
             """
-
-            
             print("before:", self.pulse.dc)
-
             self.pulse.dc = dc.get()
-
+            print("work?", dc.get())
             print("after", self.pulse.dc)
                 
         def dir_down():
@@ -559,16 +516,16 @@ class Interface(Read_Pin):
                 print("Click on start button to activate the press")
                 messagebox.showerror('Error', 'Click on start button to activate the press')
 
-        obj = tk.IntVar(value=self.aim)
+        obj = tk.IntVar(value=self.aim, master=mainframe)
 
         def set_force():
             self.aim = obj.get()
             print("force to apply:", self.aim)
 
-        sec = tk.IntVar(value=self.sleep_record)
+        sec = tk.IntVar(value=self.sleep_record, master=mainframe)
 
         def set_time():
-            self.sleep_record= sec.get()
+            self.sleep_record = sec.get()
             self.start_recording = True
             self.run_time()
             print("Recording data every:", self.sleep_record, 'seconds')
@@ -586,9 +543,9 @@ class Interface(Read_Pin):
             self.create_matplotlib_window()
             print("New window open, to see data")
 
-        ### Manual Controller    
+        ### Manual Controller
         tk.Label(mainframe, text="Manual Controller", font=("Arial Bold", 12), height=3).grid(column=1, row=1)
-        
+
         # Pulse label and buttons
         tk.Label(mainframe, text="Pulse", height=3).grid(column=1, row=2)
         tk.Button(mainframe, text="Start", command=self.pulse.start_PWM, width=10).grid(column=2, row=2)
@@ -611,12 +568,12 @@ class Interface(Read_Pin):
         # change the frequency according to user input
         tk.Entry(mainframe, textvariable=dc, width=10).grid(column=5, row=3)
         tk.Button(mainframe, text="set Duty Cycle", command=duty_cycle).grid(column=6, row=3)
-            
+
         # active or inactive
         self.btn = tk.Button(mainframe, text="Waiting", width=10, height=3, bg="yellow", state='disabled')
         self.btn.grid(column=6, row=4)
-        
-        ### Set Force 
+
+        ### Set Force
         tk.Label(mainframe, text="Force to apply (kN)", font=("Arial Bold", 12), height = 3).grid(column=1, row=5)
 
         # Sensor reading
@@ -632,13 +589,23 @@ class Interface(Read_Pin):
         tk.Button(mainframe, text="Start recording", command=set_time, width=12).grid(column=2, row=8)
         tk.Button(mainframe, text="Pause recording", command=pause_recordings, width=12).grid(column=3, row=8)
         tk.Button(mainframe, text="Clear Recordings", command=clear_recordings, width=12).grid(column=4, row=8)
-        
+
         # Plotting Data
         tk.Button(mainframe, text="Plot Data", command=plot_data, width=10).grid(column=1, row=9)
-        
+
         # Saving Data
         tk.Button(mainframe, text="Save Data", command=self.save_data, width=10).grid(column=1, row=10)
-        
+
+        # Close the window
+        def exit_mainframe():
+            print("Exit application")
+            self.stop()
+            if self.dummy is False:
+                IO.cleanup()
+            mainframe.destroy()
+
+        tk.Button(mainframe, text="Exit window", bg="red", command=exit_mainframe).grid(column=1, row=10)
+
         # run thread
         self.run()
         
