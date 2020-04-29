@@ -375,7 +375,7 @@ class Interface(Read_Pin):
             self.active = Input_Pin(Active_channel_in)
             self.balance = Balance_Sensor()
     
-        self.sleep = 0.2
+        self.sleep = 0.1
 
         self.df = None
         self.set_new_df()
@@ -395,7 +395,7 @@ class Interface(Read_Pin):
 
         self.sleep_record = 2
         self.aim = 2
-        self.deviation = 0.5
+        self.deviation = 0.3
 
         self.dir_name = "./"
 
@@ -434,25 +434,44 @@ class Interface(Read_Pin):
 
     def create_matplotlib_window(self):
         # Initialize an instance of Tk
-        matplot_window = tk.Tk()
-        matplot_window.title("Plot time ")
-
+        parent_plt = tk.Tk()
+        parent_plt.title("Plot time ")
+        parent_plt.geometry('750x400')
+    
+        canvas_plt = tk.Canvas(parent_plt)
+        scroll_y = tk.Scrollbar(parent_plt, orient="vertical", command=canvas_plt.yview)
+        
+        matplot_window = tk.Frame(canvas_plt)
+        
+        fig = plt.figure(figsize=(7,3))
         def _plotter():
             # Clear all graphs drawn in figure
             plt.clf()
             plt.xlabel("Time (sec)")
             plt.ylabel("Force (kN)")
             plt.plot(self.df.Time_sec, self.df.Force_kN, '*--', color="Blue")
-            self.fig.canvas.draw()
+            plt.grid()
+            fig.canvas.draw()
 
         # Special type of "canvas" to allow for matplotlib graphing
-        canvas = FigureCanvasTkAgg(self.fig, master=matplot_window)
+        canvas = FigureCanvasTkAgg(fig, master=matplot_window)
         plot_widget = canvas.get_tk_widget()
         # Add the plot to the tkinter widget
         plot_widget.grid(row=0, column=0)
         # Create a tkinter button at the bottom of the window and link it with the updateGraph function
         tk.Button(matplot_window, text="Update", command=_plotter).grid(row=1, column=0)
-        matplot_window.mainloop()
+        
+        canvas_plt.create_window(0, 0, anchor='nw', window=matplot_window)
+        # make sure everything is displayed before configuring the scrollregion
+        canvas_plt.update_idletasks()
+
+        canvas_plt.configure(scrollregion=canvas_plt.bbox('all'), 
+                         yscrollcommand=scroll_y.set)
+                         
+        canvas_plt.pack(fill='both', expand=True, side='left')
+        scroll_y.pack(fill='y', side='right')
+        
+        parent_plt.mainloop()
 
     def force(self):
         actual_force = self.balance.ave
@@ -460,17 +479,17 @@ class Interface(Read_Pin):
         e = self.deviation
         if actual_force > (aim_force + e):  # Go down
             self.pulse.stop()
-            #time.sleep(self.sleep)
+            time.sleep(self.sleep)
             self.dir.on()
-            #time.sleep(self.sleep)
+            time.sleep(self.sleep)
             self.pulse.move_PWM()
             self.pulse.stop()
 
         elif actual_force < (aim_force - e):  # Go up
             self.pulse.stop()
-            #time.sleep(self.sleep)
+            time.sleep(self.sleep)
             self.dir.off()
-            #time.sleep(self.sleep)
+            time.sleep(self.sleep)
             self.pulse.move_PWM()
             self.pulse.stop()
 
@@ -494,12 +513,15 @@ class Interface(Read_Pin):
         Returns:
 
         """
-        # Create root
-        mainframe = tk.Tk()
+        parent = tk.Tk()
+        parent.title("Press Controller and sensor readings")
+        parent.geometry('750x400')
         
-        # Create main frame shape
-        mainframe.title("Press Controller and sensor readings")
-        #mainframe.geometry('650x450')
+        canvas = tk.Canvas(parent)
+        scroll_y = tk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+
+        mainframe = tk.Frame(canvas)
+               
 
         fq = tk.IntVar(value=self.pulse.frequency, master=mainframe)
         def frequency():
@@ -597,17 +619,17 @@ class Interface(Read_Pin):
         tk.Label(mainframe, text="Manual Controller", font=("Arial Bold", 12), height=3).grid(column=1, row=1)
 
         # Enable label and buttons
-        tk.Label(mainframe, text="Enable", height=3).grid(column=1, row=2)
+        tk.Label(mainframe, text="Enable").grid(column=1, row=2)
         tk.Button(mainframe, text="On", command=self.enable.on, width=10).grid(column=2, row=2)
         tk.Button(mainframe, text="Off", command=self.enable.off, width=10).grid(column=3, row=2)
 
         # Pulse label and buttons
-        tk.Label(mainframe, text="Pulse", height=3).grid(column=1, row=3)
+        tk.Label(mainframe, text="Pulse").grid(column=1, row=3)
         tk.Button(mainframe, text="Start", command=self.pulse.start_PWM, width=10).grid(column=2, row=3)
         tk.Button(mainframe, text="Stop", command=self.pulse.stop, width=10).grid(column=3, row=3)
 
         # direction label and buttons
-        tk.Label(mainframe, text="Direction", height=3).grid(column=1, row=4)
+        tk.Label(mainframe, text="Direction").grid(column=1, row=4)
         tk.Button(mainframe, text="Down(CCW)", command=dir_down, width=10).grid(column=2, row=4)
         tk.Button(mainframe, text="Up(CW)", command=dir_up, width=10).grid(column=3, row=4)
 
@@ -668,23 +690,34 @@ class Interface(Read_Pin):
         def stop_all(): #TODO: still not working
             print("Stop all")
             self.pulse.stop()
-            time.sleep(0.1)
+            time.sleep(0.3)
             self.enable.off()
-            time.sleep(0.1)
+            time.sleep(0.3)
             self.pause_force()
-            time.sleep(0.1)
+            time.sleep(0.3)
             self.pause_time()
-            time.sleep(0.1)
+            time.sleep(0.3)
             self.stop()
             #if self.dummy is False:
             #    IO.cleanup()
             #mainframe.quit()
 
         tk.Button(mainframe, text="Stop all", bg="red", command=stop_all).grid(column=5, row=1, columnspan=2, sticky=tk.W + tk.E)
+        
+        canvas.create_window(0, 0, anchor='nw', window=mainframe)
+        # make sure everything is displayed before configuring the scrollregion
+        canvas.update_idletasks()
+
+        canvas.configure(scrollregion=canvas.bbox('all'), 
+                         yscrollcommand=scroll_y.set)
+                         
+        canvas.pack(fill='both', expand=True, side='left')
+        scroll_y.pack(fill='y', side='right')
+        
 
         # run thread
         self.run()
         
-        mainframe.mainloop()
+        parent.mainloop()
         if self.dummy is False:
             IO.cleanup()
